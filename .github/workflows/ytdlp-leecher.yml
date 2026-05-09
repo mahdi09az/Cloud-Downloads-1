@@ -1,4 +1,4 @@
-name: HLS to Repo Splitter (Ultimate Bypass + Index Fix)
+name: HLS to Repo Splitter (Ultimate Bypass)
 
 on:
   workflow_dispatch:
@@ -23,43 +23,31 @@ jobs:
           # نصب yt-dlp به همراه ماژول‌های پیشرفته دور زدن کلودفلر
           python3 -m pip install --upgrade "yt-dlp[default,curl-cffi]"
 
-      - name: Download, Merge and Fix Index
+      - name: Download and Merge Video
         env:
           COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
-          # ساخت فایل کوکی
           echo "$COOKIES_TXT" > cookies.txt
           
           RAW_URL="${{ github.event.inputs.url }}"
           FINAL_URL="$RAW_URL"
           
-          # تبدیل خودکار لینک معمولی به لینک Embed برای دور زدن قطعی فیلتر امنیتی
           if [[ "$RAW_URL" == *"viewkey="* ]]; then
               VIEWKEY=$(echo "$RAW_URL" | grep -oP 'viewkey=\K[^&]+')
               FINAL_URL="https://www.pornhub.com/embed/$VIEWKEY"
-              echo "✅ Converted to Embed format: $FINAL_URL"
+              echo "✅ Converted to Embed: $FINAL_URL"
           fi
           
-          # مرحله اول: دانلود ویدیو با نام خام (جعل هویت کروم + اعمال کوکی + محدودیت 720p)
-          yt-dlp --impersonate "chrome" --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_raw.mp4" "$FINAL_URL"
-          
-          # مرحله دوم: کپی کردن استریم بدون افت کیفیت و بازسازی ایندکس زمان‌بندی برای امکان پرش در ویدیو
-          echo "✅ Fixing video timestamps and timeline index..."
-          ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
-          
-          # حذف فایل خام اولیه
-          rm video_raw.mp4
+          # استفاده از دستور impersonate برای جعل اثر انگشت کروم
+          yt-dlp --impersonate "chrome" --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "$FINAL_URL"
 
       - name: Split and Prepare Files
         run: |
-          # ساخت پوشه اختصاصی
           FOLDER_NAME="downloads/video-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
           
-          # تکه‌تکه کردن سریع ویدیو به پارت‌های 90 مگابایتی
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           
-          # پاک‌سازی فایل‌های موقت
           rm video_final.mp4
           rm -f cookies.txt
 
