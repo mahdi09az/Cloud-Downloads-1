@@ -1,4 +1,4 @@
-name: HLS to Repo Splitter (Ultimate Bypass)
+name: HLS to Repo Splitter (Final Fixed Version)
 
 on:
   workflow_dispatch:
@@ -17,29 +17,25 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies & curl-cffi bypass
+      - name: Install dependencies & curl-cffi
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3-pip
-          # نصب yt-dlp به همراه ماژول‌های پیشرفته دور زدن کلودفلر
-          python3 -m pip install --upgrade "yt-dlp[default,curl-cffi]"
+          # نصب نسخه توسعه‌دهندگان برای دور زدن آخرین تغییرات سایت
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
 
-      - name: Download and Merge Video
+      - name: Download, Merge and Fix Index
         env:
           COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
           echo "$COOKIES_TXT" > cookies.txt
           
-          RAW_URL="${{ github.event.inputs.url }}"
-          FINAL_URL="$RAW_URL"
+          # دانلود مسقیم از لینک اصلی با جعل هویت کروم
+          yt-dlp --impersonate "chrome" --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_raw.mp4" "${{ github.event.inputs.url }}"
           
-          if [[ "$RAW_URL" == *"viewkey="* ]]; then
-              VIEWKEY=$(echo "$RAW_URL" | grep -oP 'viewkey=\K[^&]+')
-              FINAL_URL="https://www.pornhub.com/embed/$VIEWKEY"
-              echo "✅ Converted to Embed: $FINAL_URL"
-          fi
+          echo "✅ Fixing video timestamps..."
+          ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
           
-          # استفاده از دستور impersonate برای جعل اثر انگشت کروم
-          yt-dlp --impersonate "chrome" --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "$FINAL_URL"
+          rm video_raw.mp4
 
       - name: Split and Prepare Files
         run: |
