@@ -20,7 +20,7 @@ jobs:
       - name: Download and Merge
         run: |
           # استفاده از آرگومان‌های بهینه برای چسباندن تیکه‌ها به هم
-          yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "${{ github.event.inputs.url }}"
+          yt-dlp -f "bestvideo[height<=480]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "${{ github.event.inputs.url }}"
 
       - name: Create Release and Upload
         uses: softprops/action-gh-release@v2
