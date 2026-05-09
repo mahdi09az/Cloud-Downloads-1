@@ -1,10 +1,10 @@
-name: 🛠️ Manual m3u8 & Direct Leecher (High Speed)
+name: 🛠️ Manual Direct Leecher (Aria2 Engine)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک مستقیم mp4 یا m3u8'
+        description: 'لینک مستقیم (mp4, php, m3u8 و غیره)'
         required: true
       referer:
         description: 'آدرس سایت اصلی (Referer)'
@@ -21,48 +21,40 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Nightly Engine & Aria2
+      - name: Install Tools
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3-pip aria2
-          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
+          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2
 
-      - name: Direct Download (Multi-threaded)
-        env:
-          COOKIES_TXT: ${{ secrets.PH_COOKIES }}
+      - name: Force Download with Aria2
         run: |
-          echo "$COOKIES_TXT" > cookies.txt
-          
-          echo "🚀 Downloading: ${{ github.event.inputs.url }}"
-          
-          # اضافه شدن allow-unplayable-formats برای دور زدن ارور پسوند php
-          # حذف اجبار برای انتخاب فرمت خاص جهت پایداری در لینک‌های مستقیم
-          yt-dlp \
-            --impersonate "chrome" \
-            --cookies cookies.txt \
-            --referer "${{ github.event.inputs.referer }}" \
-            --downloader aria2c \
-            --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
-            --allow-unplayable-formats \
-            --no-check-certificate \
+          echo "🚀 Starting High-Speed Download..."
+          # استفاده از aria2c برای دور زدن محدودیت‌های پسوند و افزایش سرعت
+          aria2c -x 16 -s 16 -k 1M \
+            --referer="${{ github.event.inputs.referer }}" \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
+            --check-certificate=false \
             -o "video_raw.mp4" \
             "${{ github.event.inputs.url }}"
-          
-          echo "✅ Rebuilding video index..."
+
+      - name: Fix Video Index (FastStart)
+        run: |
+          echo "✅ Fixing video timestamps and timeline index..."
+          # بازسازی فایل برای قابلیت جلو/عقب بردن ویدیو
           ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
           rm video_raw.mp4
 
-      - name: Split to 90MB Parts
+      - name: Split and Prepare Files
         run: |
           FOLDER_NAME="downloads/manual-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
+          # فشرده‌سازی و پارت‌بندی 90 مگابایتی
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           rm video_final.mp4
-          rm -f cookies.txt
 
-      - name: Push to Repo
+      - name: Push to GitHub Code
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "Manual download fixed: ${{ github.run_id }}"
+          git commit -m "Manual Aria2 Download: ${{ github.run_id }}"
           git push
