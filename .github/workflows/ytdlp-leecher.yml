@@ -14,7 +14,6 @@ jobs:
   download_and_commit:
     runs-on: ubuntu-latest
     steps:
-      # این مرحله اضافه شده تا ربات بتواند فایل‌ها را داخل خود مخزن قرار دهد
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -22,29 +21,25 @@ jobs:
         run: |
           sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
           sudo chmod a+rx /usr/local/bin/yt-dlp
-          # نصب p7zip برای تکه‌تکه کردن فایل‌ها
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full
 
       - name: Download and Merge Video
         run: |
           yt-dlp -f "bestvideo[height<=480]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "${{ github.event.inputs.url }}"
 
-      - name: Split and Prepare Files
+      - name: Split and Prepare Files (Instant Mode)
         run: |
-          # ساخت فولدر اختصاصی برای این ویدیو در تب Code
           FOLDER_NAME="downloads/video-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
           
-          # فشرده‌سازی و تکه‌تکه کردن ویدیو به پارت‌های 90 مگابایتی
-          # این کار فایل‌های video.zip.001 و video.zip.002 را می‌سازد
-          7z a -v90m "$FOLDER_NAME/video.zip" video_final.mp4
+          # استفاده از پسوند 7z برای جلوگیری از ارور
+          # اضافه شدن mx=0 برای تکه‌تکه کردن سریع و بدون افت زمان
+          7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           
-          # حذف فایل اصلی برای سبک شدن محیط کار
           rm video_final.mp4
 
       - name: Commit and Push to GitHub Code
         run: |
-          # دستورات مربوط به ذخیره فایل‌ها در تب Code
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
