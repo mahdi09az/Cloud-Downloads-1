@@ -1,0 +1,27 @@
+name: ⚡ Fast Bypass Tester
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'لینک اصلی صفحه ویدیو (URL مرورگر)'
+        required: true
+
+jobs:
+  test_connection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Nightly yt-dlp
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-pip
+          # نصب جدیدترین نسخه در حال توسعه (Nightly) به جای نسخه معمولی
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
+
+      - name: Test Extraction (No Download)
+        env:
+          COOKIES_TXT: ${{ secrets.PH_COOKIES }}
+        run: |
+          echo "$COOKIES_TXT" > cookies.txt
+          echo "در حال تست عبور از سد امنیتی..."
+          # دستور زیر ویدیو را دانلود نمی‌کند، فقط سعی می‌کند نام آن را بخواند
+          yt-dlp --impersonate "chrome" --cookies cookies.txt --print "✅ عبور موفقیت‌آمیز! نام ویدیو: %(title)s" "${{ github.event.inputs.url }}"
