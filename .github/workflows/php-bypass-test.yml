@@ -1,0 +1,41 @@
+name: 🧪 PHP-Link Bypass Tester
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'لینک مستقیم که به .php ختم می‌شود'
+        required: true
+      referer:
+        description: 'آدرس سایت اصلی (Referer)'
+        required: false
+        default: 'https://www.google.com/'
+
+jobs:
+  test_download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
+      - name: Force Download with Aria2
+        run: |
+          echo "🚀 Starting Force Download..."
+          # استفاده مستقیم از aria2c بدون واسطه گری yt-dlp
+          # این ابزار به پسوند .php حساس نیست
+          aria2c -x 16 -s 16 -k 1M \
+            --referer="${{ github.event.inputs.referer }}" \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
+            --check-certificate=false \
+            -o "test_video.mp4" \
+            "${{ github.event.inputs.url }}"
+
+      - name: Check File Size
+        run: |
+          if [ -f test_video.mp4 ]; then
+            ls -lh test_video.mp4
+            echo "✅ فایل با موفقیت دانلود شد!"
+          else
+            echo "❌ دانلود شکست خورد."
+            exit 1
+          fi
