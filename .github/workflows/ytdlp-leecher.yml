@@ -1,10 +1,10 @@
-name: Ultimate Video Leecher (m3u8/HLS/DASH)
+name: HLS & Direct Video Leecher
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک صفحه ویدیو یا لینک m3u8'
+        description: 'لینک صفحه ویدیو یا لینک استخراج شده (m3u8)'
         required: true
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
 
       - name: Download and Merge
         run: |
-          # استفاده از آرگومان‌های بهینه برای چسباندن تیکه‌ها به هم
+          # دانلود و چسباندن با سقف کیفیت 480p
           yt-dlp -f "bestvideo[height<=480]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "${{ github.event.inputs.url }}"
 
       - name: Create Release and Upload
@@ -29,4 +29,3 @@ jobs:
           files: video_final.mp4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
