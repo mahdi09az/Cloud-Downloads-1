@@ -1,10 +1,10 @@
-name: HLS to Repo Splitter (Raw File Method)
+name: HLS to Repo Splitter (Cookie Method)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک صفحه ویدیو یا لینک استخراج شده'
+        description: 'لینک اصلی صفحه ویدیو (URL مرورگر)'
         required: true
 
 permissions:
@@ -24,19 +24,27 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full
 
       - name: Download and Merge Video
+        env:
+          # فراخوانی کوکی ذخیره شده در تنظیمات گیت‌هاب
+          COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
-          yt-dlp -f "bestvideo[height<=480]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "${{ github.event.inputs.url }}"
+          # تبدیل کوکی به یک فایل متنی در سرور
+          echo "$COOKIES_TXT" > cookies.txt
+          
+          # دانلود ویدیو با استفاده از کوکی‌ها برای عبور از فیلتر سایت مبدأ
+          yt-dlp --cookies cookies.txt -f "bestvideo[height<=480]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "${{ github.event.inputs.url }}"
 
       - name: Split and Prepare Files (Instant Mode)
         run: |
           FOLDER_NAME="downloads/video-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
           
-          # استفاده از پسوند 7z برای جلوگیری از ارور
-          # اضافه شدن mx=0 برای تکه‌تکه کردن سریع و بدون افت زمان
+          # تکه‌تکه کردن سریع ویدیو به پارت‌های 90 مگابایتی
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           
+          # پاک‌سازی فایل‌های اضافی و فایل کوکی برای حفظ امنیت
           rm video_final.mp4
+          rm -f cookies.txt
 
       - name: Commit and Push to GitHub Code
         run: |
