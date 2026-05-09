@@ -1,4 +1,4 @@
-name: HLS to Repo Splitter (Anti-Bot Bypass)
+name: HLS to Repo Splitter (Ultimate Bypass)
 
 on:
   workflow_dispatch:
@@ -17,42 +17,37 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install yt-dlp, FFMPEG & 7zip
+      - name: Install dependencies & curl-cffi bypass
         run: |
-          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-          sudo chmod a+rx /usr/local/bin/yt-dlp
-          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full
+          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3-pip
+          # نصب yt-dlp به همراه ماژول‌های پیشرفته دور زدن کلودفلر
+          python3 -m pip install --upgrade "yt-dlp[default,curl-cffi]"
 
       - name: Download and Merge Video
         env:
           COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
-          # ساخت فایل کوکی
           echo "$COOKIES_TXT" > cookies.txt
           
-          # دریافت لینک وارد شده توسط شما
           RAW_URL="${{ github.event.inputs.url }}"
           FINAL_URL="$RAW_URL"
           
-          # تبدیل خودکار لینک معمولی به لینک Embed برای دور زدن قطعی فیلتر امنیتی
           if [[ "$RAW_URL" == *"viewkey="* ]]; then
               VIEWKEY=$(echo "$RAW_URL" | grep -oP 'viewkey=\K[^&]+')
               FINAL_URL="https://www.pornhub.com/embed/$VIEWKEY"
-              echo "✅ URL automatically converted to Embed format: $FINAL_URL"
+              echo "✅ Converted to Embed: $FINAL_URL"
           fi
           
-          # دانلود با استفاده از لینک توکار و کوکی‌ها (کیفیت 720p)
-          yt-dlp --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "$FINAL_URL"
+          # استفاده از دستور impersonate برای جعل اثر انگشت کروم
+          yt-dlp --impersonate "chrome" --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_final.mp4" "$FINAL_URL"
 
-      - name: Split and Prepare Files (Instant Mode)
+      - name: Split and Prepare Files
         run: |
           FOLDER_NAME="downloads/video-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
           
-          # تکه‌تکه کردن سریع ویدیو
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           
-          # پاک‌سازی فایل‌های موقت
           rm video_final.mp4
           rm -f cookies.txt
 
