@@ -1,13 +1,13 @@
-name: 🛠️ Manual m3u8 & Direct Leecher
+name: 🛠️ Manual m3u8 & Direct Leecher (High Speed)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک مستقیم m3u8 یا لینک استخراج شده از افزونه'
+        description: 'لینک مستقیم mp4 یا m3u8'
         required: true
       referer:
-        description: 'آدرس سایت اصلی (Referer) برای دور زدن ارور 403'
+        description: 'آدرس سایت اصلی (Referer)'
         required: false
         default: 'https://www.google.com/'
 
@@ -21,33 +21,34 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Nightly Engine
+      - name: Install Nightly Engine & Aria2
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3-pip
+          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3-pip aria2
+          # نصب نسخه توسعه‌دهندگان yt-dlp برای حداکثر پایداری
           python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
 
-      - name: Direct Download and Fix
+      - name: Direct Download (Multi-threaded)
         env:
           COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
-          # ساخت فایل کوکی (در صورت نیاز سایت)
           echo "$COOKIES_TXT" > cookies.txt
           
-          echo "🚀 Downloading Direct Link: ${{ github.event.inputs.url }}"
-          echo "🔗 Using Referer: ${{ github.event.inputs.referer }}"
+          echo "🚀 Downloading: ${{ github.event.inputs.url }}"
           
-          # دانلود با پارامترهای دستی و جعل هویت دقیق
+          # استفاده از aria2c با 16 کانال همزمان برای افزایش سرعت
           yt-dlp \
             --impersonate "chrome" \
             --cookies cookies.txt \
             --referer "${{ github.event.inputs.referer }}" \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
+            --downloader aria2c \
+            --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
             -f "bestvideo+bestaudio/best" \
             --merge-output-format mp4 \
             -o "video_raw.mp4" \
             "${{ github.event.inputs.url }}"
           
-          # بازسازی ایندکس برای حل مشکل جلو/عقب زدن ویدیو
+          # اصلاح ایندکس زمانی برای قابلیت پرش در ویدیو (Seekable)
+          echo "✅ Rebuilding video index..."
           ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
           rm video_raw.mp4
 
@@ -55,7 +56,7 @@ jobs:
         run: |
           FOLDER_NAME="downloads/manual-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
-          # فشرده‌سازی آنی و تکه‌تکه کردن
+          # فشرده‌سازی آنی (بدون اتلاف وقت) و پارت‌بندی
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           rm video_final.mp4
           rm -f cookies.txt
@@ -65,5 +66,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "Manual upload: ${{ github.run_id }}"
+          git commit -m "Manual download high-speed: ${{ github.run_id }}"
           git push
