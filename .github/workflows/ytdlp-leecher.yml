@@ -1,10 +1,10 @@
-name: HLS to Repo Splitter (Final Fixed Version)
+name: HLS to Repo Splitter (Advanced Bypass 2026)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک اصلی صفحه ویدیو (URL مرورگر)'
+        description: 'لینک اصلی صفحه ویدیو'
         required: true
 
 permissions:
@@ -20,7 +20,6 @@ jobs:
       - name: Install dependencies & curl-cffi
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3-pip
-          # نصب نسخه توسعه‌دهندگان برای دور زدن آخرین تغییرات سایت
           python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
 
       - name: Download, Merge and Fix Index
@@ -29,21 +28,39 @@ jobs:
         run: |
           echo "$COOKIES_TXT" > cookies.txt
           
-          # دانلود مسقیم از لینک اصلی با جعل هویت کروم
-          yt-dlp --impersonate "chrome" --cookies cookies.txt -f "bestvideo[height<=720]+bestaudio/best" --merge-output-format mp4 -o "video_raw.mp4" "${{ github.event.inputs.url }}"
+          # تبدیل خودکار به لینک موبایل (که امنیت کمتری دارد)
+          RAW_URL="${{ github.event.inputs.url }}"
+          if [[ "$RAW_URL" == *"www."* ]]; then
+              FINAL_URL=$(echo "$RAW_URL" | sed 's/www./m./')
+          else
+              FINAL_URL="$RAW_URL"
+          fi
+          
+          echo "🚀 Trying to bypass using Mobile URL: $FINAL_URL"
+          
+          # اجرای دانلود با هدرهای اضافی و جعل هویت دقیق
+          yt-dlp \
+            --impersonate "chrome" \
+            --cookies cookies.txt \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
+            --add-header "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8" \
+            --add-header "Accept-Language:en-US,en;q=0.9" \
+            --add-header "Sec-Fetch-Mode:navigate" \
+            --referer "https://www.google.com/" \
+            -f "bestvideo[height<=720]+bestaudio/best" \
+            --merge-output-format mp4 \
+            -o "video_raw.mp4" \
+            "$FINAL_URL"
           
           echo "✅ Fixing video timestamps..."
           ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
-          
           rm video_raw.mp4
 
       - name: Split and Prepare Files
         run: |
           FOLDER_NAME="downloads/video-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
-          
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
-          
           rm video_final.mp4
           rm -f cookies.txt
 
