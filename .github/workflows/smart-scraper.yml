@@ -1,10 +1,10 @@
-name: 🧠 Smart Scraper (IP-Lock Bypass)
+name: 🧠 Smart Scraper (IP-Lock Bypass v2)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'آدرس صفحه ویدیو (لینک مستقیم ندهید، لینک خود صفحه را بدهید)'
+        description: 'آدرس صفحه ویدیو (مثال: https://www.yeptube.net/video/...)'
         required: true
 
 permissions:
@@ -24,49 +24,49 @@ jobs:
         run: |
           echo "🚀 Step 1: Fetching page as GitHub Runner..."
           
-          # نوشتن یک اسکریپت پایتون سریع برای خواندن سورس سایت و پیدا کردن لینک آی‌پی-قفل شده
+          # اسکریپت پایتون ارتقایافته برای فیلتر تیزرها و یافتن لینک اصلی
           cat << 'EOF' > scraper.py
           import urllib.request
           import re
           import sys
 
           url = sys.argv[1]
-          # تغییر User-Agent به مرورگر کامپیوتر برای دریافت کیفیت بهتر
           url = url.replace('m.yeptube.net', 'www.yeptube.net') 
           
-          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'})
           try:
               html = urllib.request.urlopen(req).read().decode('utf-8', errors='ignore')
-              # اصلاح اسلش‌های جاوااسکریپتی
               html = html.replace('\\/', '/')
               
-              # جستجوی لینک‌های ویدیویی mp4 در سورس کد
+              # استخراج تمام لینک‌های mp4
               links = re.findall(r'(https?://[^\s"\'<>]+?\.mp4[^\s"\'<>]*)', html)
               
-              if links:
-                  # چاپ اولین لینک معتبر یافت شده
-                  print(links[0])
+              # فیلتر کردن لینک‌های تیزر، پیش‌نمایش و تبلیغات
+              valid_links = [l for l in links if 'preview' not in l.lower() and 'thumb' not in l.lower()]
+              
+              if valid_links:
+                  # انتخاب طولانی‌ترین لینک (لینک اصلی حاوی توکن‌های md5 و expire است)
+                  best_link = max(valid_links, key=len)
+                  print(best_link)
               else:
                   print("NOT_FOUND")
           except Exception as e:
               print("ERROR")
           EOF
 
-          # اجرای اسکریپت و ذخیره خروجی
           DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}")
           
           if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
-            echo "❌ نتوانستم لینک ویدیو را در سورس صفحه پیدا کنم. ممکن است سایت دارای سیستم ضد-ربات ابری (Cloudflare) باشد."
+            echo "❌ استخراج لینک شکست خورد. ممکن است ویدیو نیاز به لاگین داشته باشد یا با Cloudflare مسدود شده باشد."
             exit 1
           fi
           
-          echo "✅ Found fresh IP-locked link: $DIRECT_LINK"
+          echo "✅ Found Main Video Link: $DIRECT_LINK"
           
           echo "🚀 Step 2: Downloading with Aria2..."
-          # دانلود لینک یافت شده (چون توسط خود سرور پیدا شده، مشکل آی‌پی نخواهد داشت)
           aria2c -x 16 -s 16 -k 1M \
             --referer="${{ github.event.inputs.url }}" \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             --check-certificate=false \
             -o "video_raw.mp4" \
             "$DIRECT_LINK"
@@ -89,5 +89,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "Smart Scraper Download: ${{ github.run_id }}"
+          git commit -m "Smart Scraper V2: ${{ github.run_id }}"
           git push
