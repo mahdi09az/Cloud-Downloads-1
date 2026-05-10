@@ -1,4 +1,4 @@
-name: 🛠️ Manual Direct Leecher (Aria2 Engine - Pro)
+name: 🛠️ Manual Direct Leecher (Aria2 Engine)
 
 on:
   workflow_dispatch:
@@ -7,8 +7,9 @@ on:
         description: 'لینک مستقیم (mp4, php, m3u8 و غیره)'
         required: true
       referer:
-        description: 'آدرس دقیق صفحه‌ای که ویدیو را در آن دیدید'
-        required: true
+        description: 'آدرس سایت اصلی (Referer)'
+        required: false
+        default: 'https://www.google.com/'
 
 permissions:
   contents: write
@@ -24,18 +25,11 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2
 
-      - name: Force Download with Aria2 (With Cookies)
-        env:
-          COOKIES_TXT: ${{ secrets.PH_COOKIES }}
+      - name: Force Download with Aria2
         run: |
-          # ذخیره کوکی‌ها برای استفاده در aria2
-          echo "$COOKIES_TXT" > aria2_cookies.txt
-          
-          echo "🚀 Starting Secure Download..."
-          
-          # اضافه کردن فلگ load-cookies برای عبور از سد 403
+          echo "🚀 Starting High-Speed Download..."
+          # استفاده از aria2c برای دور زدن محدودیت‌های پسوند و افزایش سرعت
           aria2c -x 16 -s 16 -k 1M \
-            --load-cookies="aria2_cookies.txt" \
             --referer="${{ github.event.inputs.referer }}" \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
             --check-certificate=false \
@@ -44,26 +38,23 @@ jobs:
 
       - name: Fix Video Index (FastStart)
         run: |
-          if [ -f video_raw.mp4 ]; then
-            ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
-            rm video_raw.mp4
-          else
-            echo "❌ فایل دانلود نشده است."
-            exit 1
-          fi
+          echo "✅ Fixing video timestamps and timeline index..."
+          # بازسازی فایل برای قابلیت جلو/عقب بردن ویدیو
+          ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
+          rm video_raw.mp4
 
       - name: Split and Prepare Files
         run: |
           FOLDER_NAME="downloads/manual-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
+          # فشرده‌سازی و پارت‌بندی 90 مگابایتی
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           rm video_final.mp4
-          rm -f aria2_cookies.txt
 
       - name: Push to GitHub Code
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "Manual Aria2 Pro Download: ${{ github.run_id }}"
+          git commit -m "Manual Aria2 Download: ${{ github.run_id }}"
           git push
