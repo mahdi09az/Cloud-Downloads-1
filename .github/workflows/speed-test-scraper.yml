@@ -1,4 +1,4 @@
-name: 🧪 WAF Buster Test (With Guaranteed Playwright Fallback)
+name: 🧪 WAF Buster Test (Blob Injection)
 
 on:
   workflow_dispatch:
@@ -77,12 +77,11 @@ jobs:
               
               cookies = context.cookies()
               
-              # ذخیره کوکی‌ها برای موتور ۱۶ هسته‌ای
+              # ذخیره کوکی‌ها
               cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
               with open('pw_cookie_header.txt', 'w', encoding='utf-8') as f:
                   f.write(cookie_str)
                   
-              # ذخیره کوکی‌ها برای نقشه جایگزین (Playwright)
               with open('pw_cookies.json', 'w', encoding='utf-8') as f:
                   json.dump(cookies, f)
               
@@ -116,7 +115,7 @@ jobs:
           echo "✅ LINK FOUND: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
-      - name: Execute Stealth Download (With Fallback Guarantee)
+      - name: Execute Stealth Download (With Blob Fallback)
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
         run: |
@@ -142,30 +141,53 @@ jobs:
           }
 
           print("📡 Doing a stealth GET to check WAF status...")
-          # تطبیق دقیق اثر انگشت شبکه با گوشی‌های اپل
           session = requests.Session(impersonate="safari15_5")
           
           resp = session.get(url, headers=headers, stream=True)
           
-          # 🚨 نقشه جایگزین (Plan B): اگر کلودفلر باز هم مچ‌گیری کرد
           if resp.status_code >= 400:
-              print(f"⚠️ WAF Blocked 16-Thread Engine (Status {resp.status_code}). Deploying Ultimate Playwright Fallback!")
+              print(f"⚠️ WAF Blocked 16-Thread Engine (Status {resp.status_code}). Deploying DOM Blob Injection!")
               from playwright.sync_api import sync_playwright
               with sync_playwright() as p:
-                  browser = p.chromium.launch(headless=True)
+                  # خاموش کردن امنیت کرومیوم برای جلوگیری از ارورهای CORS بین سایت و CDN ویدیو
+                  browser = p.chromium.launch(headless=True, args=['--disable-web-security'])
                   context = browser.new_context(user_agent=ua)
-                  # تزریق مجدد کوکی‌های اصلی
                   with open('pw_cookies.json', 'r') as f:
                       context.add_cookies(json.load(f))
-                  print("⏳ Bypassing Firewall via Core Browser Engine... Downloading directly (Please wait 1-3 minutes)...")
-                  # دانلود مستقیم و یکپارچه با موتور خود مرورگر (۱۰۰٪ تضمینی)
-                  res = context.request.get(url, headers={"Referer": referer}, timeout=0)
-                  with open("video_raw.mp4", "wb") as f:
-                      f.write(res.body())
-              print("🎉 Guaranteed Download Finished via Playwright!")
+                  
+                  page = context.new_page()
+                  print("🌐 Loading original page to establish DOM trust...")
+                  page.goto(referer, wait_until="domcontentloaded", timeout=60000)
+                  
+                  print("⏳ Fetching video entirely inside Chromium RAM... (Takes 1-2 minutes, no logs will show until done)...")
+                  
+                  # استفاده از شنود دانلود اختصاصی کرومیوم
+                  with page.expect_download(timeout=600000) as download_info:
+                      page.evaluate(f"""async () => {{
+                          // دانلود ویدیو مانند یک کاربر واقعی از طریق قلب مرورگر
+                          const response = await fetch('{url}');
+                          const blob = await response.blob();
+                          const objectUrl = URL.createObjectURL(blob);
+                          
+                          const a = document.createElement('a');
+                          a.href = objectUrl;
+                          a.download = 'video_raw.mp4';
+                          document.body.appendChild(a);
+                          a.click();
+                      }}""")
+                      
+                  download = download_info.value
+                  download.save_as("video_raw.mp4")
+              
+              # چک نهایی سلامت فایل
+              final_size = os.path.getsize("video_raw.mp4")
+              if final_size < 1024:
+                  print(f"❌ Fallback failed! File is only {final_size} bytes (Likely blocked).")
+                  sys.exit(1)
+                  
+              print(f"🎉 Guaranteed Download Finished via Playwright DOM! Size: {final_size / (1024*1024):.2f} MB")
               sys.exit(0)
 
-          # اگر فایروال گول خورد و موتور ۱۶ هسته‌ای اجازه ورود یافت:
           file_size = int(resp.headers.get("Content-Length", 0))
           resp.close()
 
