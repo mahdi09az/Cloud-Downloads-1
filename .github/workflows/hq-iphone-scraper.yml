@@ -1,17 +1,28 @@
-name: 🚀 HQ Direct Leecher (iPhone Bypass)
+name: 🚀 Ultimate Leecher (Quality Selector)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'آدرس اصلی صفحه ویدیو (لینک مرورگر)'
+        description: 'آدرس اصلی صفحه ویدیو'
         required: true
+      quality:
+        description: 'کیفیت دانلود را انتخاب کنید'
+        required: true
+        type: choice
+        options:
+          - best
+          - 720
+          - 480
+          - 360
+          - lowest
+        default: best
 
 permissions:
   contents: write
 
 jobs:
-  hq_smart_download:
+  ultimate_smart_download:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -24,15 +35,16 @@ jobs:
           python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
           python3 -m playwright install --with-deps chromium
 
-      - name: Emulate iPhone & Extract Direct MP4
+      - name: Emulate iPhone & Extract Target Quality
         run: |
-          echo "🚀 Step 1: Emulating iPhone 13 to force Direct MP4 link..."
+          echo "🚀 Step 1: Emulating iPhone & Sniffing Network for ${{ github.event.inputs.quality }} quality..."
           
           cat << 'EOF' > scraper.py
           from playwright.sync_api import sync_playwright
           import sys
 
           target_url = sys.argv[1]
+          target_q = sys.argv[2]
           target_url = target_url.replace('m.yeptube.net', 'www.yeptube.net')
           found_links = set()
 
@@ -70,28 +82,39 @@ jobs:
           else:
               mp4_links = [l for l in found_links if '.mp4' in l and 'preview' not in l.lower()]
               if mp4_links:
-                  print(max(mp4_links, key=len))
+                  hq_links = [l for l in mp4_links if 'hq' in l.lower()]
+                  lq_links = [l for l in mp4_links if 'lq' in l.lower()]
+                  
+                  if target_q in ['best', '720']:
+                      print(max(hq_links if hq_links else mp4_links, key=len))
+                  elif target_q in ['lowest', '360', '480']:
+                      print(max(lq_links if lq_links else mp4_links, key=len))
+                  else:
+                      print(max(mp4_links, key=len))
               else:
                   m3u8_links = [l for l in found_links if '.m3u8' in l]
                   if m3u8_links:
-                      clean_links = [l for l in m3u8_links if not any(bad in l for bad in ['160p', '240p', '360p'])]
-                      target_list = clean_links if clean_links else m3u8_links
-                      best = [l for l in target_list if '1080' in l]
-                      if not best: best = [l for l in target_list if '720' in l]
-                      if not best: best = target_list
-                      print(best[0])
+                      if target_q == 'best':
+                          c = [l for l in m3u8_links if '1080' in l] or [l for l in m3u8_links if '720' in l] or [l for l in m3u8_links if '480' in l] or m3u8_links
+                      elif target_q == 'lowest':
+                          c = [l for l in m3u8_links if '160' in l] or [l for l in m3u8_links if '240' in l] or [l for l in m3u8_links if '360' in l] or m3u8_links
+                      else:
+                          c = [l for l in m3u8_links if target_q in l]
+                          if not c:
+                              c = [l for l in m3u8_links if '480' in l] or m3u8_links
+                      print(c[0])
                   else:
                       print("NOT_FOUND")
           EOF
 
-          DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}")
+          DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}" "${{ github.event.inputs.quality }}")
           
           if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
             echo "❌ لینکی یافت نشد. ممکن است سایت دارای سیستم ضد-ربات ابری باشد."
             exit 1
           fi
           
-          echo "✅ LINK FOUND: $DIRECT_LINK"
+          echo "✅ LINK FOUND for Quality [${{ github.event.inputs.quality }}]: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
       - name: High-Speed Download Execution
@@ -137,7 +160,7 @@ jobs:
       - name: Split and Prepare Files
         run: |
           echo "✂️ Splitting files into 90MB chunks..."
-          FOLDER_NAME="downloads/yeptube-${{ github.run_id }}"
+          FOLDER_NAME="downloads/ultimate-${{ github.run_id }}"
           mkdir -p "$FOLDER_NAME"
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           rm video_final.mp4
@@ -148,5 +171,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "🚀 HQ Bypass Download: ${{ github.run_id }}"
+          git commit -m "🚀 Ultimate Download [${{ github.event.inputs.quality }}]: ${{ github.run_id }}"
           git push
