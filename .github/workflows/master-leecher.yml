@@ -1,4 +1,4 @@
-name: 👑 Master All-in-One Leecher (Yeptube, EroASMR, etc)
+name: 👑 Master All-in-One Leecher (Cookie Injection)
 
 on:
   workflow_dispatch:
@@ -35,12 +35,12 @@ jobs:
           python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
           python3 -m playwright install --with-deps chromium
 
-      - name: Emulate iPhone & Extract Link (Smart Engine)
+      - name: Emulate iPhone & Extract Live Cookies
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
           INPUT_QUALITY: ${{ github.event.inputs.quality }}
         run: |
-          echo "🚀 Step 1: Analyzing site and sniffing network for $INPUT_QUALITY quality..."
+          echo "🚀 Step 1: Sniffing network and extracting LIVE cookies for $INPUT_QUALITY..."
           
           cat << 'EOF' > scraper.py
           from playwright.sync_api import sync_playwright
@@ -48,7 +48,6 @@ jobs:
 
           target_url = sys.argv[1]
           target_q = sys.argv[2]
-          # ترفند اختصاصی برای Yeptube (روی سایت‌های دیگر اثری ندارد)
           target_url = target_url.replace('m.yeptube.net', 'www.yeptube.net')
           found_links = set()
 
@@ -64,7 +63,6 @@ jobs:
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              # شبیه‌سازی آیفون ۱۳ برای دریافت لینک‌های مستقیم از سایت‌های سخت‌گیر
               iphone_13 = p.devices['iPhone 13']
               context = browser.new_context(**iphone_13)
               page = context.new_page()
@@ -80,12 +78,25 @@ jobs:
                   page.wait_for_timeout(5000)
               except:
                   pass
+              
+              # استخراج کوکی‌های زنده و ذخیره در فرمت استاندارد Netscape برای موتور دانلود
+              cookies = context.cookies()
+              with open('pw_cookies.txt', 'w') as f:
+                  f.write("# Netscape HTTP Cookie File\n")
+                  for c in cookies:
+                      domain = c['domain']
+                      flag = "TRUE" if domain.startswith('.') else "FALSE"
+                      path = c['path']
+                      secure = "TRUE" if c['secure'] else "FALSE"
+                      expires = int(c.get('expires', 0))
+                      if expires == -1: expires = 0
+                      f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{c['name']}\t{c['value']}\n")
+              
               browser.close()
 
           if not found_links:
               print("NOT_FOUND")
           else:
-              # فیلتر هوشمند کیفیت
               mp4_links = [l for l in found_links if '.mp4' in l and 'preview' not in l.lower()]
               if mp4_links:
                   hq_links = [l for l in mp4_links if 'hq' in l.lower()]
@@ -126,32 +137,23 @@ jobs:
       - name: High-Speed Multi-Engine Download
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
-          COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
-          echo "🚀 Step 2: Choosing Best Download Engine..."
-          
-          if [ ! -z "$COOKIES_TXT" ]; then
-            echo "$COOKIES_TXT" > cookies.txt
-            ARIA_COOKIE="--load-cookies=cookies.txt"
-            YTDLP_COOKIE="--cookies cookies.txt"
-          else
-            ARIA_COOKIE=""
-            YTDLP_COOKIE=""
-          fi
+          echo "🚀 Step 2: Choosing Engine and Injecting Live Session Cookies..."
           
           if [[ "${{ env.DIRECT_LINK }}" == *".mp4"* ]]; then
-            echo "🎬 Direct MP4 -> Using Aria2c (16 Threads)..."
-            aria2c -x 16 -s 16 -k 1M $ARIA_COOKIE \
+            echo "🎬 Direct MP4 -> Using Aria2c with Live Cookies..."
+            aria2c -x 16 -s 16 -k 1M \
+              --load-cookies="pw_cookies.txt" \
               --referer="$INPUT_URL" \
               --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --check-certificate=false \
               -o "video_raw.mp4" \
               "${{ env.DIRECT_LINK }}"
           else
-            echo "🎥 HLS Playlist -> Using yt-dlp Native Engine (16 Threads)..."
+            echo "🎥 HLS Playlist -> Using yt-dlp Native Engine with Live Cookies..."
             yt-dlp \
               -N 16 \
-              $YTDLP_COOKIE \
+              --cookies "pw_cookies.txt" \
               --downloader "m3u8:native" \
               --referer="$INPUT_URL" \
               --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
@@ -163,7 +165,7 @@ jobs:
             mv video_dl.* video_raw.mp4
           fi
           
-          rm -f cookies.txt
+          rm -f pw_cookies.txt
 
       - name: Fix Video Index (FastStart)
         run: |
