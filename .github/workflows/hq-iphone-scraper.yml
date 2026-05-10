@@ -36,8 +36,12 @@ jobs:
           python3 -m playwright install --with-deps chromium
 
       - name: Emulate iPhone & Extract Target Quality
+        env:
+          # ایزوله کردن ورودی کاربر برای جلوگیری از خطای نگارشی Bash
+          INPUT_URL: ${{ github.event.inputs.url }}
+          INPUT_QUALITY: ${{ github.event.inputs.quality }}
         run: |
-          echo "🚀 Step 1: Emulating iPhone & Sniffing Network for ${{ github.event.inputs.quality }} quality..."
+          echo "🚀 Step 1: Emulating iPhone & Sniffing Network for $INPUT_QUALITY quality..."
           
           cat << 'EOF' > scraper.py
           from playwright.sync_api import sync_playwright
@@ -107,17 +111,19 @@ jobs:
                       print("NOT_FOUND")
           EOF
 
-          DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}" "${{ github.event.inputs.quality }}")
+          DIRECT_LINK=$(python3 scraper.py "$INPUT_URL" "$INPUT_QUALITY")
           
           if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
             echo "❌ لینکی یافت نشد. ممکن است سایت دارای سیستم ضد-ربات ابری باشد."
             exit 1
           fi
           
-          echo "✅ LINK FOUND for Quality [${{ github.event.inputs.quality }}]: $DIRECT_LINK"
+          echo "✅ LINK FOUND for Quality [$INPUT_QUALITY]: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
       - name: High-Speed Download Execution
+        env:
+          INPUT_URL: ${{ github.event.inputs.url }}
         run: |
           echo "🚀 Step 2: Executing High-Speed Download Engine..."
           
@@ -126,7 +132,7 @@ jobs:
             yt-dlp \
               --downloader aria2c \
               --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
-              --referer "${{ github.event.inputs.url }}" \
+              --referer "$INPUT_URL" \
               --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --no-check-certificate \
               -o "video_raw.mp4" \
@@ -136,7 +142,7 @@ jobs:
             yt-dlp \
               -N 16 \
               --downloader "m3u8:native" \
-              --referer "${{ github.event.inputs.url }}" \
+              --referer "$INPUT_URL" \
               --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --no-check-certificate \
               --remux-video mp4 \
