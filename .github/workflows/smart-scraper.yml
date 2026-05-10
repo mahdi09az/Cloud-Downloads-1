@@ -1,10 +1,10 @@
-name: 🧠 Smart Scraper (IP-Lock Bypass v2)
+name: 🧠 Smart Scraper (Weight Radar v3)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'آدرس صفحه ویدیو (مثال: https://www.yeptube.net/video/...)'
+        description: 'آدرس اصلی صفحه ویدیو'
         required: true
 
 permissions:
@@ -18,38 +18,58 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3
-
-      - name: Extract Link and Download
         run: |
-          echo "🚀 Step 1: Fetching page as GitHub Runner..."
+          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
+
+      - name: Extract and Weigh Links
+        run: |
+          echo "🚀 Step 1: Scanning and weighing all video files..."
           
-          # اسکریپت پایتون ارتقایافته برای فیلتر تیزرها و یافتن لینک اصلی
           cat << 'EOF' > scraper.py
           import urllib.request
           import re
           import sys
 
-          url = sys.argv[1]
-          url = url.replace('m.yeptube.net', 'www.yeptube.net') 
-          
-          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'})
+          page_url = sys.argv[1]
+          page_url = page_url.replace('m.yeptube.net', 'www.yeptube.net')
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+              'Referer': page_url
+          }
+
           try:
+              req = urllib.request.Request(page_url, headers=headers)
               html = urllib.request.urlopen(req).read().decode('utf-8', errors='ignore')
               html = html.replace('\\/', '/')
-              
-              # استخراج تمام لینک‌های mp4
-              links = re.findall(r'(https?://[^\s"\'<>]+?\.mp4[^\s"\'<>]*)', html)
-              
-              # فیلتر کردن لینک‌های تیزر، پیش‌نمایش و تبلیغات
-              valid_links = [l for l in links if 'preview' not in l.lower() and 'thumb' not in l.lower()]
-              
-              if valid_links:
-                  # انتخاب طولانی‌ترین لینک (لینک اصلی حاوی توکن‌های md5 و expire است)
-                  best_link = max(valid_links, key=len)
-                  print(best_link)
-              else:
-                  print("NOT_FOUND")
+
+              # پیدا کردن تمام لینک‌های mp4 و m3u8
+              links = re.findall(r'(https?://[^\s"\'<>]+?\.(?:mp4|m3u8)[^\s"\'<>]*)', html)
+              links = list(set(links)) # حذف لینک‌های تکراری
+
+              best_link = "NOT_FOUND"
+              max_size = 0
+
+              for link in links:
+                  # اگر لینک لیست‌پخش m3u8 باشد، همیشه اولویت دارد
+                  if '.m3u8' in link:
+                      best_link = link
+                      break
+                  
+                  # وزن‌کشی فایل‌های mp4 با ارسال درخواست HEAD
+                  try:
+                      head_req = urllib.request.Request(link, headers=headers, method='HEAD')
+                      res = urllib.request.urlopen(head_req, timeout=5)
+                      size = int(res.headers.get('Content-Length', 0))
+                      
+                      # انتخاب فایلی که بیشترین حجم را دارد
+                      if size > max_size:
+                          max_size = size
+                          best_link = link
+                  except:
+                      continue
+
+              print(best_link)
           except Exception as e:
               print("ERROR")
           EOF
@@ -57,25 +77,37 @@ jobs:
           DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}")
           
           if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
-            echo "❌ استخراج لینک شکست خورد. ممکن است ویدیو نیاز به لاگین داشته باشد یا با Cloudflare مسدود شده باشد."
+            echo "❌ هیچ لینک معتبری در سایت یافت نشد."
             exit 1
           fi
           
-          echo "✅ Found Main Video Link: $DIRECT_LINK"
-          
-          echo "🚀 Step 2: Downloading with Aria2..."
-          aria2c -x 16 -s 16 -k 1M \
-            --referer="${{ github.event.inputs.url }}" \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            --check-certificate=false \
+          echo "✅ TARGET LOCKED: The heaviest file is -> $DIRECT_LINK"
+          echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
+
+      - name: Download Main Video
+        run: |
+          echo "🚀 Step 2: Downloading with yt-dlp + Aria2 Backend..."
+          # در اینجا از yt-dlp استفاده می‌کنیم تا اگر فایل اصلی m3u8 بود، به درستی هندل شود
+          yt-dlp \
+            --downloader aria2c \
+            --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
+            --referer "${{ github.event.inputs.url }}" \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            --allow-unplayable-formats \
+            --no-check-certificate \
             -o "video_raw.mp4" \
-            "$DIRECT_LINK"
+            "${{ env.DIRECT_LINK }}"
 
       - name: Fix Video Index (FastStart)
         run: |
-          echo "✅ Fixing video timestamps..."
-          ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
-          rm video_raw.mp4
+          if [ -f video_raw.mp4 ]; then
+            echo "✅ Fixing video timestamps..."
+            ffmpeg -i video_raw.mp4 -c copy -movflags +faststart video_final.mp4
+            rm video_raw.mp4
+          else
+            echo "❌ دانلود انجام نشد."
+            exit 1
+          fi
 
       - name: Split and Prepare Files
         run: |
@@ -89,5 +121,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "Smart Scraper V2: ${{ github.run_id }}"
+          git commit -m "Smart Scraper V3: ${{ github.run_id }}"
           git push
