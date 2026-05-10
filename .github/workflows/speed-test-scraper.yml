@@ -1,10 +1,10 @@
-name: 🧪 Speed Test Scraper (Multi-Thread HLS)
+name: 🧪 Speed Test Scraper (Native HLS Engine)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'آدرس اصلی صفحه ویدیو (برای تست سرعت)'
+        description: 'آدرس اصلی صفحه ویدیو'
         required: true
 
 permissions:
@@ -21,11 +21,10 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
           python3 -m pip install playwright
-          # نصب نسخه شبانه yt-dlp برای حداکثر سرعت و سازگاری
           python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
           python3 -m playwright install --with-deps chromium
 
-      - name: Sniff Network & Filter High Quality
+      - name: Sniff Network & Force High Quality
         run: |
           echo "🚀 Step 1: Sniffing for High-Quality Links..."
           
@@ -66,16 +65,19 @@ jobs:
           if not found_links:
               print("NOT_FOUND")
           else:
-              # فیلتر کیفیت: اولویت با لینک‌های 1080، 720 یا فایل اصلی master
               m3u8_links = [l for l in found_links if '.m3u8' in l]
               if m3u8_links:
-                  high_q = [l for l in m3u8_links if '1080' in l or '720' in l or 'master' in l or 'index' in l]
-                  if high_q:
-                      print(high_q[0])
-                  else:
-                      # حذف لینک‌های 160p و 240p در صورت امکان
-                      better_q = [l for l in m3u8_links if '160p' not in l and '240p' not in l]
-                      print(better_q[0] if better_q else m3u8_links[0])
+                  # فیلتر هوشمند: ابتدا حذف کیفیت‌های به درد نخور
+                  clean_links = [l for l in m3u8_links if not any(bad in l for bad in ['160p', '240p', '360p'])]
+                  target_list = clean_links if clean_links else m3u8_links
+                  
+                  # اولویت‌بندی از بهترین تا بدترین
+                  best = [l for l in target_list if '1080' in l]
+                  if not best: best = [l for l in target_list if '720' in l]
+                  if not best: best = [l for l in target_list if '480' in l]
+                  if not best: best = target_list
+                  
+                  print(best[0])
               else:
                   print(max(found_links, key=len))
           EOF
@@ -90,16 +92,16 @@ jobs:
           echo "✅ LINK FOUND: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
-      - name: High-Speed Concurrent Download
+      - name: High-Speed Concurrent Download (Forced Native)
         run: |
           echo "🚀 Step 2: Starting High-Speed Download..."
           
-          # تشخیص هوشمند فرمت برای اعمال بهترین تنظیمات سرعت
           if [[ "${{ env.DIRECT_LINK }}" == *".m3u8"* ]]; then
-            echo "🎥 HLS Playlist detected! Using Native Concurrent Fragments (-N 16)..."
-            # پارامتر N 16 کلید طلایی برای دانلود همزمان ۱۶ تکه از ویدیو است
+            echo "🎥 HLS Playlist detected! Forcing Native Downloader with 16 Threads..."
+            # قطع دسترسی FFmpeg در زمان دانلود و استفاده از موتور داخلی با سرعت بالا
             yt-dlp \
-              -N 16 \
+              --concurrent-fragments 16 \
+              --downloader "m3u8:native" \
               --referer "${{ github.event.inputs.url }}" \
               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
               --allow-unplayable-formats \
@@ -119,7 +121,7 @@ jobs:
               "${{ env.DIRECT_LINK }}"
           fi
 
-      - name: Verify and Prepare
+      - name: Verify File
         run: |
           if [ -f video_raw.mp4 ]; then
             echo "✅ دانلود با سرعت بالا موفقیت‌آمیز بود!"
@@ -128,5 +130,3 @@ jobs:
             echo "❌ دانلود انجام نشد."
             exit 1
           fi
-          # برای اینکه تست سریع‌تر تمام شود، در این مرحله فایل را فشرده نمی‌کنیم
-          # فقط بررسی می‌کنیم که فایل با موفقیت دانلود شده باشد
