@@ -1,10 +1,10 @@
-name: 👑 Master All-in-One Leecher (WAF-Buster Engine)
+name: 👑 Master All-in-One Leecher (Ultimate WAF-Buster)
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'آدرس صفحه ویدیو (هر سایتی که هست)'
+        description: 'آدرس صفحه ویدیو (Yeptube, EroASMR و غیره)'
         required: true
       quality:
         description: 'کیفیت دانلود'
@@ -28,29 +28,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install System Tools & yt-dlp
+      - name: Install System Tools & Advanced Libraries
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
-          python3 -m pip install playwright
-          # نصب کتابخانه دور زدن کلودفلر
-          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git" curl_cffi
+          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full python3 python3-pip
+          python3 -m pip install playwright curl_cffi
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
           python3 -m playwright install --with-deps chromium
 
-      - name: Emulate iPhone & Extract Live Cookies
+      - name: Sniff Network, Clone Headers & Extract Links
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
           INPUT_QUALITY: ${{ github.event.inputs.quality }}
         run: |
-          echo "🚀 Step 1: Sniffing network and extracting LIVE cookies for $INPUT_QUALITY..."
+          echo "🚀 Step 1: Analyzing Site & Cloning Active Identity for $INPUT_QUALITY..."
           
           cat << 'EOF' > scraper.py
           from playwright.sync_api import sync_playwright
-          import sys
+          import sys, json
 
           target_url = sys.argv[1]
           target_q = sys.argv[2]
           target_url = target_url.replace('m.yeptube.net', 'www.yeptube.net')
           found_links = set()
+          cloned_headers = {}
 
           def handle_response(response):
               try:
@@ -59,30 +59,27 @@ jobs:
                       url_lower = url.lower()
                       if 'preview' not in url_lower and 'thumb' not in url_lower and 'teaser' not in url_lower:
                           found_links.add(url)
+                          cloned_headers[url] = response.request.all_headers()
               except:
                   pass
 
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
-              iphone_13 = p.devices['iPhone 13']
-              context = browser.new_context(**iphone_13)
+              context = browser.new_context(
+                  user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+              )
               page = context.new_page()
               page.on("response", handle_response)
               
               try:
                   page.goto(target_url, wait_until="networkidle", timeout=45000)
-                  video_src = page.evaluate('() => { const v = document.querySelector("video"); return v ? v.src : null; }')
-                  if video_src and '.mp4' in video_src:
-                      found_links.add(video_src)
-                      
                   page.mouse.click(200, 200)
-                  page.wait_for_timeout(5000)
+                  page.wait_for_timeout(6000)
               except:
                   pass
               
+              # خروجی کوکی‌ها برای موتور m3u8
               cookies = context.cookies()
-              
-              # خروجی اول: فرمت Netscape برای yt-dlp (استریم‌های m3u8)
               with open('pw_cookies.txt', 'w', encoding='utf-8') as f:
                   f.write("# Netscape HTTP Cookie File\n")
                   for c in cookies:
@@ -92,13 +89,8 @@ jobs:
                       secure = "TRUE" if c['secure'] else "FALSE"
                       expires = int(c.get('expires', 0))
                       if expires <= 0 or expires < 1700000000:
-                          expires = 2147483647 # تمدید تا سال ۲۰۳۸
+                          expires = 2147483647
                       f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{c['name']}\t{c['value']}\n")
-              
-              # خروجی دوم: هدر خام برای دانلودر اختصاصی ما (فایل‌های mp4)
-              cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-              with open('pw_cookie_header.txt', 'w', encoding='utf-8') as f:
-                  f.write(cookie_str)
               
               browser.close()
 
@@ -106,90 +98,94 @@ jobs:
               print("NOT_FOUND")
           else:
               mp4_links = [l for l in found_links if '.mp4' in l and 'preview' not in l.lower()]
+              m3u8_links = [l for l in found_links if '.m3u8' in l]
+              
+              best_link = None
+              
               if mp4_links:
                   hq_links = [l for l in mp4_links if 'hq' in l.lower()]
                   lq_links = [l for l in mp4_links if 'lq' in l.lower()]
                   
                   if target_q in ['best', '720']:
-                      print(max(hq_links if hq_links else mp4_links, key=len))
+                      best_link = max(hq_links if hq_links else mp4_links, key=len)
                   elif target_q in ['lowest', '360', '480']:
-                      print(max(lq_links if lq_links else mp4_links, key=len))
+                      best_link = max(lq_links if lq_links else mp4_links, key=len)
                   else:
-                      print(max(mp4_links, key=len))
+                      best_link = max(mp4_links, key=len)
+              elif m3u8_links:
+                  if target_q == 'best':
+                      c = [l for l in m3u8_links if '1080' in l] or [l for l in m3u8_links if '720' in l] or [l for l in m3u8_links if '480' in l] or m3u8_links
+                  elif target_q == 'lowest':
+                      c = [l for l in m3u8_links if '160' in l] or [l for l in m3u8_links if '240' in l] or [l for l in m3u8_links if '360' in l] or m3u8_links
+                  else:
+                      c = [l for l in m3u8_links if target_q in l]
+                      if not c:
+                          c = [l for l in m3u8_links if '480' in l] or m3u8_links
+                  best_link = c[0]
+              
+              if best_link:
+                  print(best_link)
+                  with open('headers.json', 'w', encoding='utf-8') as f:
+                      json.dump(cloned_headers.get(best_link, {}), f)
               else:
-                  m3u8_links = [l for l in found_links if '.m3u8' in l]
-                  if m3u8_links:
-                      if target_q == 'best':
-                          c = [l for l in m3u8_links if '1080' in l] or [l for l in m3u8_links if '720' in l] or [l for l in m3u8_links if '480' in l] or m3u8_links
-                      elif target_q == 'lowest':
-                          c = [l for l in m3u8_links if '160' in l] or [l for l in m3u8_links if '240' in l] or [l for l in m3u8_links if '360' in l] or m3u8_links
-                      else:
-                          c = [l for l in m3u8_links if target_q in l]
-                          if not c:
-                              c = [l for l in m3u8_links if '480' in l] or m3u8_links
-                      print(c[0])
-                  else:
-                      print("NOT_FOUND")
+                  print("NOT_FOUND")
           EOF
 
           DIRECT_LINK=$(python3 scraper.py "$INPUT_URL" "$INPUT_QUALITY")
           
           if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
-            echo "❌ لینکی یافت نشد. سایت دسترسی ربات را مسدود کرده است."
+            echo "❌ استخراج لینک ناموفق بود. مسدود توسط فایروال یا عدم وجود ویدیو."
             exit 1
           fi
           
-          echo "✅ TARGET LOCKED [$INPUT_QUALITY]: $DIRECT_LINK"
+          echo "✅ TARGET LOCKED: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
-      - name: Custom 16-Thread WAF Bypass Download
+      - name: High-Speed Custom Multi-Engine Download
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
         run: |
-          echo "🚀 Step 2: Choosing Engine and Bypassing WAF Firewalls..."
+          echo "🚀 Step 2: Engaging Smart Download Engine..."
           
           if [[ "${{ env.DIRECT_LINK }}" == *".mp4"* ]]; then
-            echo "🎬 Direct MP4 -> Using Custom Python WAF-Buster (16 Threads)..."
+            echo "🎬 Direct MP4 Detected -> Using Custom Python 16-Thread WAF-Buster!"
             
-            # اسکریپت دانلودر قدرتمند و اختصاصی ما برای دور زدن کامل فایروال
             cat << 'EOF' > custom_downloader.py
-          import sys, os
+          import sys, os, json
           from curl_cffi import requests
           from concurrent.futures import ThreadPoolExecutor
 
           url = sys.argv[1]
-          referer = sys.argv[2]
-          with open('pw_cookie_header.txt', 'r') as f:
-              cookie = f.read().strip()
+          
+          with open('headers.json', 'r') as f:
+              headers = json.load(f)
 
-          headers = {
-              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-              "Referer": referer,
-              "Cookie": cookie,
-              "Accept": "*/*"
-          }
+          # پاکسازی هدرهای مداخله‌گر
+          for k in ['range', 'accept-encoding', 'content-length']:
+              headers.pop(k, None)
+              headers.pop(k.lower(), None)
 
-          print("📡 Connecting to server stealthily...")
-          # استفاده از Range برای دور زدن بلاک بودن درخواست HEAD در فایروال‌ها
-          headers["Range"] = "bytes=0-0"
-          resp = requests.get(url, headers=headers, impersonate="safari", stream=True)
+          print("📡 Doing a stealth GET using exact Browser Headers...")
+          session = requests.Session(impersonate="chrome110")
+          resp = session.get(url, headers=headers, stream=True)
           
           if resp.status_code >= 400:
-              print(f"❌ Server rejected our sneaky connection (Status {resp.status_code}).")
+              print(f"❌ WAF Blocked us! Status: {resp.status_code}")
               sys.exit(1)
 
-          file_size = int(resp.headers.get("Content-Range", "").split("/")[-1] if "Content-Range" in resp.headers else resp.headers.get("Content-Length", 0))
+          file_size = int(resp.headers.get("Content-Length", 0))
+          resp.close()
 
           if file_size == 0:
-              print("⚠️ Could not determine file size. Downloading single-threaded as fallback...")
-              r = requests.get(url, headers={k:v for k,v in headers.items() if k!="Range"}, impersonate="safari", stream=True)
+              print("⚠️ File size unknown. Downloading single-thread...")
+              r = session.get(url, headers=headers, stream=True)
               with open("video_raw.mp4", "wb") as f:
                   for chunk in r.iter_content(chunk_size=1024*1024):
                       if chunk: f.write(chunk)
+              print("🎉 Download Finished!")
               sys.exit(0)
 
-          print(f"📦 Payload Target Size: {file_size / (1024*1024):.2f} MB")
-          print("⚡ Engaging 16 concurrent threads...")
+          print(f"✅ WAF Bypassed! Target Size: {file_size / (1024*1024):.2f} MB")
           
           threads = 16
           chunk_size = file_size // threads
@@ -203,11 +199,16 @@ jobs:
               start, end, idx = rng
               h = headers.copy()
               h["Range"] = f"bytes={start}-{end}"
-              r = requests.get(url, headers=h, impersonate="safari", stream=True)
-              with open(f"part_{idx}", "wb") as f:
-                  for chunk in r.iter_content(chunk_size=1024*1024):
-                      if chunk: f.write(chunk)
-              print(f"✅ Downloaded block {idx+1}/16")
+              for attempt in range(3):
+                  try:
+                      r = session.get(url, headers=h, stream=True, timeout=15)
+                      with open(f"part_{idx}", "wb") as f:
+                          for chunk in r.iter_content(chunk_size=1024*1024):
+                              if chunk: f.write(chunk)
+                      print(f"✅ Chunk {idx+1}/16 complete.")
+                      break
+                  except:
+                      pass
 
           with ThreadPoolExecutor(max_workers=threads) as executor:
               executor.map(download_chunk, ranges)
@@ -220,21 +221,19 @@ jobs:
                       with open(part_file, "rb") as infile:
                           outfile.write(infile.read())
                       os.remove(part_file)
-          print("🎉 Target acquired successfully!")
+          print("🎉 Download 100% Successful.")
           EOF
             
-            # اجرای دانلودر اختصاصی
-            python3 custom_downloader.py "${{ env.DIRECT_LINK }}" "$INPUT_URL"
+            python3 custom_downloader.py "${{ env.DIRECT_LINK }}"
             
           else
-            echo "🎥 HLS Playlist -> Using yt-dlp Native Engine with WAF Bypass..."
+            echo "🎥 HLS Playlist Detected -> Using yt-dlp Native Engine..."
             yt-dlp \
               -N 16 \
               --cookies "pw_cookies.txt" \
-              --impersonate "safari" \
+              --impersonate "chrome110" \
               --downloader "m3u8:native" \
               --referer="$INPUT_URL" \
-              --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --no-check-certificate \
               --remux-video mp4 \
               -o "video_dl.%(ext)s" \
