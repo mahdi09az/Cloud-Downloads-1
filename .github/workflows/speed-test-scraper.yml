@@ -1,4 +1,4 @@
-name: 🧪 WAF Buster Test (Blob Injection)
+name: 🧪 WAF Buster Test (Header Clone Engine)
 
 on:
   workflow_dispatch:
@@ -34,12 +34,12 @@ jobs:
           python3 -m pip install playwright curl_cffi
           python3 -m playwright install --with-deps chromium
 
-      - name: Extract Link & Live Cookies
+      - name: Sniff Network & Clone Exact Headers
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
           INPUT_QUALITY: ${{ github.event.inputs.quality }}
         run: |
-          echo "🚀 Step 1: Sniffing network for $INPUT_QUALITY quality..."
+          echo "🚀 Step 1: Sniffing network for $INPUT_QUALITY quality & Cloning Headers..."
           
           cat << 'EOF' > scraper.py
           from playwright.sync_api import sync_playwright
@@ -48,6 +48,7 @@ jobs:
           target_url = sys.argv[1]
           target_q = sys.argv[2]
           found_links = set()
+          cloned_headers = {}
 
           def handle_response(response):
               try:
@@ -55,36 +56,27 @@ jobs:
                   if ('.mp4' in url or '.m3u8' in url):
                       if 'preview' not in url.lower() and 'thumb' not in url.lower() and 'teaser' not in url.lower():
                           found_links.add(url)
+                          # 💡 ترفند اصلی: کپی کردن دقیق تمام هدرهای شبکه مرورگر
+                          cloned_headers[url] = response.request.all_headers()
               except:
                   pass
 
           with sync_playwright() as p:
+              # استفاده از مرورگر دسکتاپ کروم برای هماهنگی ۱۰۰٪ با موتور دانلود ما
               browser = p.chromium.launch(headless=True)
-              iphone_13 = p.devices['iPhone 13']
-              context = browser.new_context(**iphone_13)
+              context = browser.new_context(
+                  user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+              )
               page = context.new_page()
               page.on("response", handle_response)
               
               try:
                   page.goto(target_url, wait_until="networkidle", timeout=45000)
-                  video_src = page.evaluate('() => { const v = document.querySelector("video"); return v ? v.src : null; }')
-                  if video_src and '.mp4' in video_src:
-                      found_links.add(video_src)
+                  # کلیک روی پلیر برای شروع پخش و دریافت هدرهای ویدیویی
                   page.mouse.click(200, 200)
-                  page.wait_for_timeout(5000)
+                  page.wait_for_timeout(6000)
               except:
                   pass
-              
-              cookies = context.cookies()
-              
-              # ذخیره کوکی‌ها
-              cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-              with open('pw_cookie_header.txt', 'w', encoding='utf-8') as f:
-                  f.write(cookie_str)
-                  
-              with open('pw_cookies.json', 'w', encoding='utf-8') as f:
-                  json.dump(cookies, f)
-              
               browser.close()
 
           if not found_links:
@@ -96,13 +88,19 @@ jobs:
                   lq_links = [l for l in mp4_links if 'lq' in l.lower()]
                   
                   if target_q in ['best', '720']:
-                      print(max(hq_links if hq_links else mp4_links, key=len))
+                      best_link = max(hq_links if hq_links else mp4_links, key=len)
                   elif target_q in ['lowest', '360', '480']:
-                      print(max(lq_links if lq_links else mp4_links, key=len))
+                      best_link = max(lq_links if lq_links else mp4_links, key=len)
                   else:
-                      print(max(mp4_links, key=len))
+                      best_link = max(mp4_links, key=len)
+                      
+                  print(best_link)
+                  
+                  # ذخیره هدرهای دقیق همین لینک برای موتور دانلود
+                  with open('headers.json', 'w', encoding='utf-8') as f:
+                      json.dump(cloned_headers.get(best_link, {}), f)
               else:
-                  print("NOT_FOUND")
+                  print("NOT_FOUND") # در این تست تمرکز فقط روی MP4 است
           EOF
 
           DIRECT_LINK=$(python3 scraper.py "$INPUT_URL" "$INPUT_QUALITY")
@@ -115,11 +113,11 @@ jobs:
           echo "✅ LINK FOUND: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
-      - name: Execute Stealth Download (With Blob Fallback)
+      - name: Execute Stealth Download (With Cloned Headers)
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
         run: |
-          echo "🚀 Step 2: Engaging Stealth Downloader..."
+          echo "🚀 Step 2: Engaging Stealth Downloader with Cloned Identity..."
           
           cat << 'EOF' > custom_downloader.py
           import sys, os, json
@@ -127,72 +125,30 @@ jobs:
           from concurrent.futures import ThreadPoolExecutor
 
           url = sys.argv[1]
-          referer = sys.argv[2]
-          with open('pw_cookie_header.txt', 'r') as f:
-              cookie = f.read().strip()
+          
+          with open('headers.json', 'r') as f:
+              headers = json.load(f)
 
-          ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Mobile/15E148 Safari/604.1"
+          # پاکسازی هدرهایی که در دانلود دستی اختلال ایجاد می‌کنند
+          for k in ['range', 'accept-encoding', 'content-length']:
+              headers.pop(k, None)
+              headers.pop(k.lower(), None)
 
-          headers = {
-              "User-Agent": ua,
-              "Referer": referer,
-              "Cookie": cookie,
-              "Accept": "*/*"
-          }
-
-          print("📡 Doing a stealth GET to check WAF status...")
-          session = requests.Session(impersonate="safari15_5")
+          print("📡 Doing a stealth GET using exact Browser Headers...")
+          # هماهنگی دقیق با مرورگر کروم نسخه ۱۱۰
+          session = requests.Session(impersonate="chrome110")
           
           resp = session.get(url, headers=headers, stream=True)
           
           if resp.status_code >= 400:
-              print(f"⚠️ WAF Blocked 16-Thread Engine (Status {resp.status_code}). Deploying DOM Blob Injection!")
-              from playwright.sync_api import sync_playwright
-              with sync_playwright() as p:
-                  # خاموش کردن امنیت کرومیوم برای جلوگیری از ارورهای CORS بین سایت و CDN ویدیو
-                  browser = p.chromium.launch(headless=True, args=['--disable-web-security'])
-                  context = browser.new_context(user_agent=ua)
-                  with open('pw_cookies.json', 'r') as f:
-                      context.add_cookies(json.load(f))
-                  
-                  page = context.new_page()
-                  print("🌐 Loading original page to establish DOM trust...")
-                  page.goto(referer, wait_until="domcontentloaded", timeout=60000)
-                  
-                  print("⏳ Fetching video entirely inside Chromium RAM... (Takes 1-2 minutes, no logs will show until done)...")
-                  
-                  # استفاده از شنود دانلود اختصاصی کرومیوم
-                  with page.expect_download(timeout=600000) as download_info:
-                      page.evaluate(f"""async () => {{
-                          // دانلود ویدیو مانند یک کاربر واقعی از طریق قلب مرورگر
-                          const response = await fetch('{url}');
-                          const blob = await response.blob();
-                          const objectUrl = URL.createObjectURL(blob);
-                          
-                          const a = document.createElement('a');
-                          a.href = objectUrl;
-                          a.download = 'video_raw.mp4';
-                          document.body.appendChild(a);
-                          a.click();
-                      }}""")
-                      
-                  download = download_info.value
-                  download.save_as("video_raw.mp4")
-              
-              # چک نهایی سلامت فایل
-              final_size = os.path.getsize("video_raw.mp4")
-              if final_size < 1024:
-                  print(f"❌ Fallback failed! File is only {final_size} bytes (Likely blocked).")
-                  sys.exit(1)
-                  
-              print(f"🎉 Guaranteed Download Finished via Playwright DOM! Size: {final_size / (1024*1024):.2f} MB")
-              sys.exit(0)
+              print(f"❌ WAF Blocked us! Status: {resp.status_code}")
+              sys.exit(1)
 
           file_size = int(resp.headers.get("Content-Length", 0))
           resp.close()
 
           if file_size == 0:
-              print("⚠️ File size unknown. Using single-thread fallback...")
+              print("⚠️ File size unknown. Downloading single-thread...")
               r = session.get(url, headers=headers, stream=True)
               with open("video_raw.mp4", "wb") as f:
                   for chunk in r.iter_content(chunk_size=1024*1024):
@@ -200,7 +156,7 @@ jobs:
               print("🎉 Download Finished!")
               sys.exit(0)
 
-          print(f"✅ WAF Bypassed! Target Size: {file_size / (1024*1024):.2f} MB")
+          print(f"✅ WAF Successfully Bypassed! Target Size: {file_size / (1024*1024):.2f} MB")
           print("⚡ Engaging 16 concurrent threads...")
           
           threads = 16
@@ -241,5 +197,7 @@ jobs:
           print("🎉 16-Thread Download Finished! Stealth engine is fully operational.")
           EOF
           
-          python3 custom_downloader.py "${{ env.DIRECT_LINK }}" "$INPUT_URL"
+          python3 custom_downloader.py "${{ env.DIRECT_LINK }}"
+          
+          # تایید حجم فایل واقعی
           ls -lh video_raw.mp4
