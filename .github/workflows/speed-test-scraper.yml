@@ -1,0 +1,132 @@
+name: 🧪 Speed Test Scraper (Multi-Thread HLS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'آدرس اصلی صفحه ویدیو (برای تست سرعت)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fast_smart_download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install System Tools & yt-dlp Nightly
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
+          python3 -m pip install playwright
+          # نصب نسخه شبانه yt-dlp برای حداکثر سرعت و سازگاری
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
+          python3 -m playwright install --with-deps chromium
+
+      - name: Sniff Network & Filter High Quality
+        run: |
+          echo "🚀 Step 1: Sniffing for High-Quality Links..."
+          
+          cat << 'EOF' > scraper.py
+          from playwright.sync_api import sync_playwright
+          import sys
+
+          target_url = sys.argv[1]
+          target_url = target_url.replace('m.yeptube.net', 'www.yeptube.net')
+          found_links = set()
+
+          def handle_response(response):
+              try:
+                  url = response.url
+                  if ('.mp4' in url or '.m3u8' in url):
+                      url_lower = url.lower()
+                      if 'preview' not in url_lower and 'thumb' not in url_lower and 'teaser' not in url_lower:
+                          found_links.add(url)
+              except:
+                  pass
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              context = browser.new_context(
+                  user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+              )
+              page = context.new_page()
+              page.on("response", handle_response)
+              
+              try:
+                  page.goto(target_url, wait_until="networkidle", timeout=45000)
+                  page.mouse.click(500, 500)
+                  page.wait_for_timeout(5000)
+              except:
+                  pass
+              browser.close()
+
+          if not found_links:
+              print("NOT_FOUND")
+          else:
+              # فیلتر کیفیت: اولویت با لینک‌های 1080، 720 یا فایل اصلی master
+              m3u8_links = [l for l in found_links if '.m3u8' in l]
+              if m3u8_links:
+                  high_q = [l for l in m3u8_links if '1080' in l or '720' in l or 'master' in l or 'index' in l]
+                  if high_q:
+                      print(high_q[0])
+                  else:
+                      # حذف لینک‌های 160p و 240p در صورت امکان
+                      better_q = [l for l in m3u8_links if '160p' not in l and '240p' not in l]
+                      print(better_q[0] if better_q else m3u8_links[0])
+              else:
+                  print(max(found_links, key=len))
+          EOF
+
+          DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}")
+          
+          if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
+            echo "❌ لینکی یافت نشد."
+            exit 1
+          fi
+          
+          echo "✅ LINK FOUND: $DIRECT_LINK"
+          echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
+
+      - name: High-Speed Concurrent Download
+        run: |
+          echo "🚀 Step 2: Starting High-Speed Download..."
+          
+          # تشخیص هوشمند فرمت برای اعمال بهترین تنظیمات سرعت
+          if [[ "${{ env.DIRECT_LINK }}" == *".m3u8"* ]]; then
+            echo "🎥 HLS Playlist detected! Using Native Concurrent Fragments (-N 16)..."
+            # پارامتر N 16 کلید طلایی برای دانلود همزمان ۱۶ تکه از ویدیو است
+            yt-dlp \
+              -N 16 \
+              --referer "${{ github.event.inputs.url }}" \
+              --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+              --allow-unplayable-formats \
+              --no-check-certificate \
+              -o "video_raw.mp4" \
+              "${{ env.DIRECT_LINK }}"
+          else
+            echo "🎬 Direct MP4 detected! Using Aria2c..."
+            yt-dlp \
+              --downloader aria2c \
+              --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
+              --referer "${{ github.event.inputs.url }}" \
+              --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+              --allow-unplayable-formats \
+              --no-check-certificate \
+              -o "video_raw.mp4" \
+              "${{ env.DIRECT_LINK }}"
+          fi
+
+      - name: Verify and Prepare
+        run: |
+          if [ -f video_raw.mp4 ]; then
+            echo "✅ دانلود با سرعت بالا موفقیت‌آمیز بود!"
+            ls -lh video_raw.mp4
+          else
+            echo "❌ دانلود انجام نشد."
+            exit 1
+          fi
+          # برای اینکه تست سریع‌تر تمام شود، در این مرحله فایل را فشرده نمی‌کنیم
+          # فقط بررسی می‌کنیم که فایل با موفقیت دانلود شده باشد
