@@ -1,4 +1,4 @@
-name: 👑 Master All-in-One Leecher (WAF Bypass)
+name: 👑 Master All-in-One Leecher (WAF-Buster Engine)
 
 on:
   workflow_dispatch:
@@ -28,12 +28,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install System Tools & yt-dlp Nightly
+      - name: Install System Tools & yt-dlp
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
           python3 -m pip install playwright
-          # نصب yt-dlp به همراه curl-cffi برای دور زدن فایروال‌های کلودفلر
-          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
+          # نصب کتابخانه دور زدن کلودفلر
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git" curl_cffi
           python3 -m playwright install --with-deps chromium
 
       - name: Emulate iPhone & Extract Live Cookies
@@ -80,8 +80,9 @@ jobs:
               except:
                   pass
               
-              # 💡 ترفند طلایی کوکی‌ها: تغییر تاریخ انقضای کوکی‌های موقت به سال ۲۰۳۸ تا موتورها آن را پس نزنند
               cookies = context.cookies()
+              
+              # خروجی اول: فرمت Netscape برای yt-dlp (استریم‌های m3u8)
               with open('pw_cookies.txt', 'w', encoding='utf-8') as f:
                   f.write("# Netscape HTTP Cookie File\n")
                   for c in cookies:
@@ -91,8 +92,13 @@ jobs:
                       secure = "TRUE" if c['secure'] else "FALSE"
                       expires = int(c.get('expires', 0))
                       if expires <= 0 or expires < 1700000000:
-                          expires = 2147483647
+                          expires = 2147483647 # تمدید تا سال ۲۰۳۸
                       f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{c['name']}\t{c['value']}\n")
+              
+              # خروجی دوم: هدر خام برای دانلودر اختصاصی ما (فایل‌های mp4)
+              cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+              with open('pw_cookie_header.txt', 'w', encoding='utf-8') as f:
+                  f.write(cookie_str)
               
               browser.close()
 
@@ -136,40 +142,90 @@ jobs:
           echo "✅ TARGET LOCKED [$INPUT_QUALITY]: $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
-      - name: High-Speed Multi-Engine Download
+      - name: Custom 16-Thread WAF Bypass Download
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
         run: |
           echo "🚀 Step 2: Choosing Engine and Bypassing WAF Firewalls..."
           
           if [[ "${{ env.DIRECT_LINK }}" == *".mp4"* ]]; then
-            echo "🎬 Direct MP4 -> Attempting Aria2c (16 Threads)..."
+            echo "🎬 Direct MP4 -> Using Custom Python WAF-Buster (16 Threads)..."
             
-            # سیستم فال‌بک (Fallback): ابتدا تلاش با موتور پرسرعت Aria2c
-            if aria2c -x 16 -s 16 -k 1M \
-              --load-cookies="pw_cookies.txt" \
-              --referer="$INPUT_URL" \
-              --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
-              --check-certificate=false \
-              -o "video_raw.mp4" \
-              "${{ env.DIRECT_LINK }}"; then
-              
-              echo "✅ Aria2c download successful."
-            else
-              echo "⚠️ Aria2c blocked by WAF (Error 403). Engaging yt-dlp Anti-Bot Bypass..."
-              # پاک کردن فایل‌های نیمه‌کاره‌ی Aria2c
-              rm -f video_raw.mp4 video_raw.mp4.aria2
-              
-              # اجرای موتور ضد-فایروال با لباس مبدل مرورگر سافاری (--impersonate safari)
-              yt-dlp \
-                --cookies "pw_cookies.txt" \
-                --impersonate "safari" \
-                --referer "$INPUT_URL" \
-                --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
-                --no-check-certificate \
-                -o "video_raw.mp4" \
-                "${{ env.DIRECT_LINK }}"
-            fi
+            # اسکریپت دانلودر قدرتمند و اختصاصی ما برای دور زدن کامل فایروال
+            cat << 'EOF' > custom_downloader.py
+          import sys, os
+          from curl_cffi import requests
+          from concurrent.futures import ThreadPoolExecutor
+
+          url = sys.argv[1]
+          referer = sys.argv[2]
+          with open('pw_cookie_header.txt', 'r') as f:
+              cookie = f.read().strip()
+
+          headers = {
+              "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+              "Referer": referer,
+              "Cookie": cookie,
+              "Accept": "*/*"
+          }
+
+          print("📡 Connecting to server stealthily...")
+          # استفاده از Range برای دور زدن بلاک بودن درخواست HEAD در فایروال‌ها
+          headers["Range"] = "bytes=0-0"
+          resp = requests.get(url, headers=headers, impersonate="safari", stream=True)
+          
+          if resp.status_code >= 400:
+              print(f"❌ Server rejected our sneaky connection (Status {resp.status_code}).")
+              sys.exit(1)
+
+          file_size = int(resp.headers.get("Content-Range", "").split("/")[-1] if "Content-Range" in resp.headers else resp.headers.get("Content-Length", 0))
+
+          if file_size == 0:
+              print("⚠️ Could not determine file size. Downloading single-threaded as fallback...")
+              r = requests.get(url, headers={k:v for k,v in headers.items() if k!="Range"}, impersonate="safari", stream=True)
+              with open("video_raw.mp4", "wb") as f:
+                  for chunk in r.iter_content(chunk_size=1024*1024):
+                      if chunk: f.write(chunk)
+              sys.exit(0)
+
+          print(f"📦 Payload Target Size: {file_size / (1024*1024):.2f} MB")
+          print("⚡ Engaging 16 concurrent threads...")
+          
+          threads = 16
+          chunk_size = file_size // threads
+          ranges = []
+          for i in range(threads):
+              start = i * chunk_size
+              end = start + chunk_size - 1 if i < threads - 1 else file_size - 1
+              ranges.append((start, end, i))
+
+          def download_chunk(rng):
+              start, end, idx = rng
+              h = headers.copy()
+              h["Range"] = f"bytes={start}-{end}"
+              r = requests.get(url, headers=h, impersonate="safari", stream=True)
+              with open(f"part_{idx}", "wb") as f:
+                  for chunk in r.iter_content(chunk_size=1024*1024):
+                      if chunk: f.write(chunk)
+              print(f"✅ Downloaded block {idx+1}/16")
+
+          with ThreadPoolExecutor(max_workers=threads) as executor:
+              executor.map(download_chunk, ranges)
+
+          print("🔗 Assembling video fragments...")
+          with open("video_raw.mp4", "wb") as outfile:
+              for i in range(threads):
+                  part_file = f"part_{i}"
+                  if os.path.exists(part_file):
+                      with open(part_file, "rb") as infile:
+                          outfile.write(infile.read())
+                      os.remove(part_file)
+          print("🎉 Target acquired successfully!")
+          EOF
+            
+            # اجرای دانلودر اختصاصی
+            python3 custom_downloader.py "${{ env.DIRECT_LINK }}" "$INPUT_URL"
+            
           else
             echo "🎥 HLS Playlist -> Using yt-dlp Native Engine with WAF Bypass..."
             yt-dlp \
