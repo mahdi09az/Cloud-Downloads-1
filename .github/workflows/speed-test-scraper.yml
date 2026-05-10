@@ -52,10 +52,10 @@ jobs:
               browser = p.chromium.launch(headless=True)
               # 📱 ترفند طلایی: شبیه‌سازی دقیق آیفون 13 برای دریافت فایل مستقیم
               iphone_13 = p.devices['iPhone 13']
-              context = browser.new_context(
-                  **iphone_13,
-                  user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
-              )
+              
+              # باگ برطرف شد: فقط از تنظیمات استاندارد خود آیفون 13 استفاده می‌کنیم
+              context = browser.new_context(**iphone_13)
+              
               page = context.new_page()
               page.on("response", handle_response)
               
@@ -115,7 +115,7 @@ jobs:
               --downloader aria2c \
               --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
               --referer "${{ github.event.inputs.url }}" \
-              --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)" \
+              --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --no-check-certificate \
               -o "video_raw.mp4" \
               "${{ env.DIRECT_LINK }}"
@@ -125,7 +125,7 @@ jobs:
               -N 16 \
               --downloader "m3u8:native" \
               --referer "${{ github.event.inputs.url }}" \
-              --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)" \
+              --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --no-check-certificate \
               --remux-video mp4 \
               -o "video_dl.%(ext)s" \
