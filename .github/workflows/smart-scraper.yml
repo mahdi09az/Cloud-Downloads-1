@@ -1,4 +1,4 @@
-name: 🧠 Smart Scraper (Weight Radar v3)
+name: 🧠 Smart Scraper (Playwright Ultimate)
 
 on:
   workflow_dispatch:
@@ -17,77 +17,91 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
-          python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
+      - name: Install System Tools
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
 
-      - name: Extract and Weigh Links
+      - name: Install Playwright & yt-dlp
         run: |
-          echo "🚀 Step 1: Scanning and weighing all video files..."
+          python3 -m pip install playwright yt-dlp
+          # نصب مرورگر کرومیوم برای ربات
+          python3 -m playwright install --with-deps chromium
+
+      - name: Sniff Network for Main Video
+        run: |
+          echo "🚀 Step 1: Launching Virtual Browser to bypass JS & IP Locks..."
           
+          # اسکریپت پایتون با استفاده از Playwright برای شنود ترافیک شبکه مرورگر
           cat << 'EOF' > scraper.py
-          import urllib.request
-          import re
+          from playwright.sync_api import sync_playwright
           import sys
+          import time
 
-          page_url = sys.argv[1]
-          page_url = page_url.replace('m.yeptube.net', 'www.yeptube.net')
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-              'Referer': page_url
-          }
+          target_url = sys.argv[1]
+          target_url = target_url.replace('m.yeptube.net', 'www.yeptube.net')
+          
+          found_links = set()
 
-          try:
-              req = urllib.request.Request(page_url, headers=headers)
-              html = urllib.request.urlopen(req).read().decode('utf-8', errors='ignore')
-              html = html.replace('\\/', '/')
+          def handle_response(response):
+              try:
+                  url = response.url
+                  # اگر درخواست مربوط به فایل ویدیویی بود
+                  if ('.mp4' in url or '.m3u8' in url):
+                      url_lower = url.lower()
+                      # فیلتر کردن فایل‌های تیزر و پیش‌نمایش
+                      if 'preview' not in url_lower and 'thumb' not in url_lower and 'teaser' not in url_lower:
+                          found_links.add(url)
+              except:
+                  pass
 
-              # پیدا کردن تمام لینک‌های mp4 و m3u8
-              links = re.findall(r'(https?://[^\s"\'<>]+?\.(?:mp4|m3u8)[^\s"\'<>]*)', html)
-              links = list(set(links)) # حذف لینک‌های تکراری
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              # ساخت یک تب مرورگر با تنظیمات یک کامپیوتر واقعی
+              context = browser.new_context(
+                  user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                  viewport={"width": 1920, "height": 1080}
+              )
+              page = context.new_page()
+              
+              # روشن کردن رادار برای شنود پاسخ‌های شبکه
+              page.on("response", handle_response)
+              
+              try:
+                  # رفتن به سایت و صبر کردن تا زمانی که لود شبکه آرام شود
+                  page.goto(target_url, wait_until="networkidle", timeout=45000)
+                  # شبیه‌سازی کلیک روی صفحه برای تحریک سایت‌هایی که پلیر را تا زمان کلیک مخفی نگه می‌دارند
+                  page.mouse.click(500, 500)
+                  page.wait_for_timeout(5000)
+              except Exception as e:
+                  # تایم‌اوت در سایت‌های دارای تبلیغات سنگین طبیعی است، از آن عبور می‌کنیم
+                  pass
+              
+              browser.close()
 
-              best_link = "NOT_FOUND"
-              max_size = 0
-
-              for link in links:
-                  # اگر لینک لیست‌پخش m3u8 باشد، همیشه اولویت دارد
-                  if '.m3u8' in link:
-                      best_link = link
-                      break
-                  
-                  # وزن‌کشی فایل‌های mp4 با ارسال درخواست HEAD
-                  try:
-                      head_req = urllib.request.Request(link, headers=headers, method='HEAD')
-                      res = urllib.request.urlopen(head_req, timeout=5)
-                      size = int(res.headers.get('Content-Length', 0))
-                      
-                      # انتخاب فایلی که بیشترین حجم را دارد
-                      if size > max_size:
-                          max_size = size
-                          best_link = link
-                  except:
-                      continue
-
-              print(best_link)
-          except Exception as e:
-              print("ERROR")
+          if not found_links:
+              print("NOT_FOUND")
+          else:
+              # اولویت اول: پیدا کردن لینک‌های استریم m3u8
+              m3u8_links = [l for l in found_links if '.m3u8' in l]
+              if m3u8_links:
+                  print(m3u8_links[0])
+              else:
+                  # اولویت دوم: استخراج طولانی‌ترین لینک mp4 (چون شامل توکن‌های md5 است)
+                  print(max(found_links, key=len))
           EOF
 
           DIRECT_LINK=$(python3 scraper.py "${{ github.event.inputs.url }}")
           
           if [ "$DIRECT_LINK" == "NOT_FOUND" ] || [ "$DIRECT_LINK" == "ERROR" ]; then
-            echo "❌ هیچ لینک معتبری در سایت یافت نشد."
+            echo "❌ مرورگر مجازی نتوانست ترافیک ویدیو را شنود کند."
             exit 1
           fi
           
-          echo "✅ TARGET LOCKED: The heaviest file is -> $DIRECT_LINK"
+          echo "✅ TARGET LOCKED (Playwright): $DIRECT_LINK"
           echo "DIRECT_LINK=$DIRECT_LINK" >> $GITHUB_ENV
 
       - name: Download Main Video
         run: |
-          echo "🚀 Step 2: Downloading with yt-dlp + Aria2 Backend..."
-          # در اینجا از yt-dlp استفاده می‌کنیم تا اگر فایل اصلی m3u8 بود، به درستی هندل شود
+          echo "🚀 Step 2: Downloading the extracted secure link..."
           yt-dlp \
             --downloader aria2c \
             --downloader-args "aria2c:-x 16 -s 16 -k 1M" \
@@ -121,5 +135,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/
-          git commit -m "Smart Scraper V3: ${{ github.run_id }}"
+          git commit -m "Smart Playwright Scraper: ${{ github.run_id }}"
           git push
