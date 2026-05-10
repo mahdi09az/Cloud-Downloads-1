@@ -1,4 +1,4 @@
-name: 👑 Master All-in-One Leecher (Raw Header Inject)
+name: 👑 Master All-in-One Leecher (WAF Bypass)
 
 on:
   workflow_dispatch:
@@ -32,15 +32,16 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full aria2 python3 python3-pip
           python3 -m pip install playwright
+          # نصب yt-dlp به همراه curl-cffi برای دور زدن فایروال‌های کلودفلر
           python3 -m pip install -U "yt-dlp[default,curl-cffi]@git+https://github.com/yt-dlp/yt-dlp.git"
           python3 -m playwright install --with-deps chromium
 
-      - name: Emulate iPhone & Extract Live Raw Cookies
+      - name: Emulate iPhone & Extract Live Cookies
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
           INPUT_QUALITY: ${{ github.event.inputs.quality }}
         run: |
-          echo "🚀 Step 1: Sniffing network and extracting RAW cookies for $INPUT_QUALITY..."
+          echo "🚀 Step 1: Sniffing network and extracting LIVE cookies for $INPUT_QUALITY..."
           
           cat << 'EOF' > scraper.py
           from playwright.sync_api import sync_playwright
@@ -79,11 +80,19 @@ jobs:
               except:
                   pass
               
-              # استخراج کوکی‌ها به صورت یک رشته‌ی خام متنی برای تزریق قطعی
+              # 💡 ترفند طلایی کوکی‌ها: تغییر تاریخ انقضای کوکی‌های موقت به سال ۲۰۳۸ تا موتورها آن را پس نزنند
               cookies = context.cookies()
-              cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-              with open('pw_cookie_header.txt', 'w', encoding='utf-8') as f:
-                  f.write(cookie_str)
+              with open('pw_cookies.txt', 'w', encoding='utf-8') as f:
+                  f.write("# Netscape HTTP Cookie File\n")
+                  for c in cookies:
+                      domain = c['domain']
+                      flag = "TRUE" if domain.startswith('.') else "FALSE"
+                      path = c['path']
+                      secure = "TRUE" if c['secure'] else "FALSE"
+                      expires = int(c.get('expires', 0))
+                      if expires <= 0 or expires < 1700000000:
+                          expires = 2147483647
+                      f.write(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{c['name']}\t{c['value']}\n")
               
               browser.close()
 
@@ -130,36 +139,43 @@ jobs:
       - name: High-Speed Multi-Engine Download
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
-          COOKIES_TXT: ${{ secrets.PH_COOKIES }}
         run: |
-          echo "🚀 Step 2: Choosing Engine and Injecting Live Raw Headers..."
-          
-          PW_COOKIE=$(cat pw_cookie_header.txt)
-          
-          if [ ! -z "$COOKIES_TXT" ]; then
-            echo "$COOKIES_TXT" > cookies.txt
-            ARIA_SECRET_COOKIE="--load-cookies=cookies.txt"
-            YTDLP_SECRET_COOKIE="--cookies cookies.txt"
-          else
-            ARIA_SECRET_COOKIE=""
-            YTDLP_SECRET_COOKIE=""
-          fi
+          echo "🚀 Step 2: Choosing Engine and Bypassing WAF Firewalls..."
           
           if [[ "${{ env.DIRECT_LINK }}" == *".mp4"* ]]; then
-            echo "🎬 Direct MP4 -> Using Aria2c with Live Header Injection..."
-            aria2c -x 16 -s 16 -k 1M $ARIA_SECRET_COOKIE \
-              --header="Cookie: $PW_COOKIE" \
+            echo "🎬 Direct MP4 -> Attempting Aria2c (16 Threads)..."
+            
+            # سیستم فال‌بک (Fallback): ابتدا تلاش با موتور پرسرعت Aria2c
+            if aria2c -x 16 -s 16 -k 1M \
+              --load-cookies="pw_cookies.txt" \
               --referer="$INPUT_URL" \
               --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
               --check-certificate=false \
               -o "video_raw.mp4" \
-              "${{ env.DIRECT_LINK }}"
+              "${{ env.DIRECT_LINK }}"; then
+              
+              echo "✅ Aria2c download successful."
+            else
+              echo "⚠️ Aria2c blocked by WAF (Error 403). Engaging yt-dlp Anti-Bot Bypass..."
+              # پاک کردن فایل‌های نیمه‌کاره‌ی Aria2c
+              rm -f video_raw.mp4 video_raw.mp4.aria2
+              
+              # اجرای موتور ضد-فایروال با لباس مبدل مرورگر سافاری (--impersonate safari)
+              yt-dlp \
+                --cookies "pw_cookies.txt" \
+                --impersonate "safari" \
+                --referer "$INPUT_URL" \
+                --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
+                --no-check-certificate \
+                -o "video_raw.mp4" \
+                "${{ env.DIRECT_LINK }}"
+            fi
           else
-            echo "🎥 HLS Playlist -> Using yt-dlp Native Engine with Live Header Injection..."
+            echo "🎥 HLS Playlist -> Using yt-dlp Native Engine with WAF Bypass..."
             yt-dlp \
               -N 16 \
-              $YTDLP_SECRET_COOKIE \
-              --add-header "Cookie: $PW_COOKIE" \
+              --cookies "pw_cookies.txt" \
+              --impersonate "safari" \
               --downloader "m3u8:native" \
               --referer="$INPUT_URL" \
               --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" \
@@ -170,8 +186,6 @@ jobs:
               
             mv video_dl.* video_raw.mp4
           fi
-          
-          rm -f cookies.txt pw_cookie_header.txt
 
       - name: Fix Video Index (FastStart)
         run: |
