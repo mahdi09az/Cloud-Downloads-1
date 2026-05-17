@@ -1,0 +1,49 @@
+name: Move File to Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'نام تگ ریلیز (مثلاً v2.0.0)'
+        required: true
+        type: string
+        default: 'v1.0.0'
+      target_path:
+        description: 'مسیر دقیق فایل (مثلاً downloads/file.zip یا downloads/*)'
+        required: true
+        type: string
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Upload File to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET="${{ inputs.target_path }}"
+          TAG="${{ inputs.tag_name }}"
+          
+          echo "مسیر انتخاب شده: $TARGET"
+          
+          # دستور زیر ابتدا سعی می‌کند یک ریلیز جدید بسازد و فایل را آپلود کند.
+          # اگر این تگ از قبل وجود داشته باشد، خطا را نادیده گرفته و فایل را به ریلیز موجود اضافه می‌کند.
+          gh release create "$TAG" $TARGET --title "Release $TAG" --notes "آپلود خودکار" || gh release upload "$TAG" $TARGET
+
+      - name: Remove File from Codebase
+        run: |
+          TARGET="${{ inputs.target_path }}"
+          
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # استفاده از سوییچ -r برای پشتیبانی از حذف کل پوشه یا فایل‌های با فرمت وایلدکارد
+          git rm -r "$TARGET"
+          git commit -m "chore: move $TARGET to releases and remove from tree"
+          git push
