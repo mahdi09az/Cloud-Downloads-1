@@ -51,10 +51,15 @@ jobs:
           7z a -mx=0 -v90m "$FOLDER_NAME/video.7z" video_final.mp4
           rm video_final.mp4
 
-      - name: Push to GitHub Code
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add downloads/
-          git commit -m "Manual Aria2 Download: ${{ github.run_id }}"
-          git push
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "Download-${{ github.run_id }}"
+          name: "📥 Download Task ID: ${{ github.run_id }}"
+          body: |
+            ### جزئیات دانلود (Download Details):
+            * **لینک مبدا:** `${{ github.event.inputs.url }}`
+            * **رفرر استفاده شده:** `${{ github.event.inputs.referer }}`
+          files: downloads/manual-${{ github.run_id }}/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
