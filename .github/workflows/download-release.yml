@@ -1,0 +1,46 @@
+name: Download, Zip, and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      download_url:
+        description: 'لینک مستقیم فایل برای دانلود'
+        required: true
+        type: string
+      file_name:
+        description: 'نام فایل پس از دانلود (به همراه پسوند، مثلاً app.exe)'
+        required: true
+        type: string
+        default: 'downloaded_file'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # دسترسی لازم برای ایجاد ریلیز و آپلود فایل
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download the file
+        run: |
+          echo "Downloading file from: ${{ inputs.download_url }}"
+          curl -L -o "${{ inputs.file_name }}" "${{ inputs.download_url }}"
+
+      - name: Create Zip archive
+        run: |
+          echo "Zipping the downloaded file..."
+          zip release_asset.zip "${{ inputs.file_name }}"
+
+      - name: Create GitHub Release and Upload Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # ایجاد یک تگ یکتا بر اساس تاریخ و زمان
+          TAG_NAME="v$(date +'%Y.%m.%d-%H%M%S')"
+          
+          # ایجاد ریلیز و آپلود فایل زیپ با استفاده از GitHub CLI
+          gh release create "$TAG_NAME" release_asset.zip \
+            --title "Release $TAG_NAME" \
+            --notes "این ریلیز به صورت خودکار ایجاد شده است. لینک منبع: ${{ inputs.download_url }}"
